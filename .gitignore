@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+camel_env/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Miscellaneous
+*.log
+.DS_Store
+
+# Environment variables
+.env
+
+# Specific to our project
+Resume/
+CAMEL_Model_Adaptation/
