@@ -12,12 +12,13 @@
 # limitations under the License.
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
 from typing import Any, Dict, Optional, Union
+import logging
 
 from camel.models.anthropic_model import AnthropicModel
 from camel.models.azure_openai_model import AzureOpenAIModel
 from camel.models.base_model import BaseModelBackend
 from camel.models.gemini_model import GeminiModel
-from camel.models.github_model import GitHubModel  # Add this import
+from camel.models.github_model import GitHubModel
 from camel.models.groq_model import GroqModel
 from camel.models.litellm_model import LiteLLMModel
 from camel.models.mistral_model import MistralModel
@@ -34,13 +35,16 @@ from camel.models.zhipuai_model import ZhipuAIModel
 from camel.types import ModelPlatformType, ModelType
 from camel.utils import BaseTokenCounter
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class ModelFactoryError(Exception):
+    """Custom exception class for ModelFactory errors."""
+    pass
 
 class ModelFactory:
-    r"""Factory of backend models.
-
-    Raises:
-        ValueError: in case the provided model type is unknown.
-    """
+    r"""Factory of backend models."""
 
     @staticmethod
     def create(
@@ -69,69 +73,94 @@ class ModelFactory:
             url (Optional[str]): The url to the model service.
 
         Raises:
-            ValueError: If there is not backend for the model.
+            ModelFactoryError: If there is no backend for the model.
 
         Returns:
             BaseModelBackend: The initialized backend.
         """
-        model_class: Any
-        if isinstance(model_type, ModelType):
-            if model_platform.is_open_source and model_type.is_open_source:
-                model_class = OpenSourceModel
-                return model_class(
-                    model_type, model_config_dict, url, token_counter
+        try:
+            if isinstance(model_type, ModelType):
+                return ModelFactory._create_model_type_backend(
+                    model_platform, model_type, model_config_dict,
+                    token_counter, api_key, url
                 )
-            if model_platform.is_openai and model_type.is_openai:
-                model_class = OpenAIModel
-            elif model_platform.is_azure and model_type.is_azure_openai:
-                model_class = AzureOpenAIModel
-            elif model_platform.is_anthropic and model_type.is_anthropic:
-                model_class = AnthropicModel
-            elif model_type.is_groq:
-                model_class = GroqModel
-            elif model_platform.is_zhipuai and model_type.is_zhipuai:
-                model_class = ZhipuAIModel
-            elif model_platform.is_gemini and model_type.is_gemini:
-                model_class = GeminiModel
-            elif model_platform.is_mistral and model_type.is_mistral:
-                model_class = MistralModel
-            elif model_platform.is_reka and model_type.is_reka:
-                model_class = RekaModel
-            elif model_type == ModelType.STUB:
-                model_class = StubModel
-            elif model_platform.is_github:  # Add this condition
-                model_class = GitHubModel
-            else:
-                raise ValueError(
-                    f"Unknown pair of model platform `{model_platform}` "
-                    f"and model type `{model_type}`."
-                )
-        elif isinstance(model_type, str):
-            if model_platform.is_ollama:
-                model_class = OllamaModel
-                return model_class(
-                    model_type, model_config_dict, url, token_counter
-                )
-            elif model_platform.is_vllm:
-                model_class = VLLMModel
-            elif model_platform.is_litellm:
-                model_class = LiteLLMModel
-            elif model_platform.is_openai_compatibility_model:
-                model_class = OpenAICompatibilityModel
-            elif model_platform.is_samba:
-                model_class = SambaModel
-            elif model_platform.is_together:
-                model_class = TogetherAIModel
-                return model_class(
-                    model_type, model_config_dict, api_key, token_counter
+            elif isinstance(model_type, str):
+                return ModelFactory._create_str_model_type_backend(
+                    model_platform, model_type, model_config_dict,
+                    token_counter, api_key, url
                 )
             else:
-                raise ValueError(
-                    f"Unknown pair of model platform `{model_platform}` "
-                    f"and model type `{model_type}`."
-                )
+                raise ModelFactoryError(f"Invalid model type `{model_type}` provided.")
+        except Exception as e:
+            logger.error(f"Error creating model backend: {str(e)}")
+            raise ModelFactoryError(f"Error creating model backend: {str(e)}") from e
+
+    @staticmethod
+    def _create_model_type_backend(
+        model_platform: ModelPlatformType,
+        model_type: ModelType,
+        model_config_dict: Dict,
+        token_counter: Optional[BaseTokenCounter],
+        api_key: Optional[str],
+        url: Optional[str],
+    ) -> BaseModelBackend:
+        """Helper method to create backend for ModelType instances."""
+        if model_platform.is_open_source and model_type.is_open_source:
+            return OpenSourceModel(model_type, model_config_dict, url, token_counter)
+
+        model_class: Any = None
+        if model_platform.is_openai and model_type.is_openai:
+            model_class = OpenAIModel
+        elif model_platform.is_azure and model_type.is_azure_openai:
+            model_class = AzureOpenAIModel
+        elif model_platform.is_anthropic and model_type.is_anthropic:
+            model_class = AnthropicModel
+        elif model_type.is_groq:
+            model_class = GroqModel
+        elif model_platform.is_zhipuai and model_type.is_zhipuai:
+            model_class = ZhipuAIModel
+        elif model_platform.is_gemini and model_type.is_gemini:
+            model_class = GeminiModel
+        elif model_platform.is_mistral and model_type.is_mistral:
+            model_class = MistralModel
+        elif model_platform.is_reka and model_type.is_reka:
+            model_class = RekaModel
+        elif model_type == ModelType.STUB:
+            model_class = StubModel
+        elif model_platform.is_github:
+            model_class = GitHubModel
         else:
-            raise ValueError(f"Invalid model type `{model_type}` provided.")
-        return model_class(
-            model_type, model_config_dict, api_key, url, token_counter
-        )
+            raise ModelFactoryError(
+                f"Unknown pair of model platform `{model_platform}` "
+                f"and model type `{model_type}`."
+            )
+
+        return model_class(model_type, model_config_dict, api_key, url, token_counter)
+
+    @staticmethod
+    def _create_str_model_type_backend(
+        model_platform: ModelPlatformType,
+        model_type: str,
+        model_config_dict: Dict,
+        token_counter: Optional[BaseTokenCounter],
+        api_key: Optional[str],
+        url: Optional[str],
+    ) -> BaseModelBackend:
+        """Helper method to create backend for string model types."""
+        if model_platform.is_ollama:
+            return OllamaModel(model_type, model_config_dict, url, token_counter)
+        elif model_platform.is_vllm:
+            return VLLMModel(model_type, model_config_dict, api_key, url, token_counter)
+        elif model_platform.is_litellm:
+            return LiteLLMModel(model_type, model_config_dict, api_key, url, token_counter)
+        elif model_platform.is_openai_compatibility_model:
+            return OpenAICompatibilityModel(model_type, model_config_dict, api_key, url, token_counter)
+        elif model_platform.is_samba:
+            return SambaModel(model_type, model_config_dict, api_key, url, token_counter)
+        elif model_platform.is_together:
+            return TogetherAIModel(model_type, model_config_dict, api_key, token_counter)
+        else:
+            raise ModelFactoryError(
+                f"Unknown pair of model platform `{model_platform}` "
+                f"and model type `{model_type}`."
+            )

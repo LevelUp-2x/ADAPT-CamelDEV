@@ -13,10 +13,10 @@
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
 import os
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional
 
 import requests
-from requests.exceptions import RequestException
+from requests.exceptions import RequestException, Timeout
 
 from camel.models import BaseModelBackend
 from camel.types import ModelType
@@ -32,33 +32,37 @@ class GitHubModelError(Exception):
 class GitHubModel(BaseModelBackend):
     def __init__(self, model_type: ModelType, model_config_dict: Dict[str, Any]):
         super().__init__(model_type, model_config_dict)
-        self.endpoint = os.getenv('GITHUB_MODELS_ENDPOINT', 'https://models.inference.ai.azure.com/chat/completions')
-        self.token = os.getenv('GITHUB_MODELS_TOKEN')
+        self.endpoint: str = os.getenv('GITHUB_MODELS_ENDPOINT', 'https://models.inference.ai.azure.com/chat/completions')
+        self.token: Optional[str] = os.getenv('GITHUB_MODELS_TOKEN')
         if not self.token:
             logger.error("GITHUB_MODELS_TOKEN not found in environment variables")
             raise GitHubModelError("GITHUB_MODELS_TOKEN not found in environment variables")
-        self.headers = {
+        self.headers: Dict[str, str] = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json"
         }
         logger.info(f"GitHubModel initialized with endpoint: {self.endpoint}")
 
     def chat_completion(self, messages: List[Dict[str, str]], **kwargs: Any) -> Dict[str, Any]:
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model_config_dict.get("model_name", self.model_type.value),
             "messages": messages,
             **kwargs
         }
         try:
             logger.info(f"Sending request to GitHub API. Model: {payload['model']}")
-            response = requests.post(self.endpoint, json=payload, headers=self.headers)
+            response = requests.post(self.endpoint, json=payload, headers=self.headers, timeout=30)
             response.raise_for_status()
             logger.info("Received successful response from GitHub API")
             return response.json()
+        except Timeout:
+            logger.error("Request to GitHub API timed out")
+            raise GitHubModelError("Request to GitHub API timed out") from None
         except RequestException as e:
             logger.error(f"Error during API request: {str(e)}")
             if e.response is not None:
                 status_code = e.response.status_code
+                error_message = e.response.text
                 if status_code == 401:
                     raise GitHubModelError("Authentication failed. Please check your GitHub API token.") from e
                 elif status_code == 403:
@@ -66,16 +70,32 @@ class GitHubModel(BaseModelBackend):
                 elif status_code == 404:
                     raise GitHubModelError("Endpoint not found. Please check the GITHUB_MODELS_ENDPOINT environment variable.") from e
                 else:
-                    raise GitHubModelError(f"Request failed with status code {status_code}: {e}") from e
+                    raise GitHubModelError(f"Request failed with status code {status_code}: {error_message}") from e
             else:
                 raise GitHubModelError(f"Request failed: {e}") from e
 
     def completion(self, prompt: str, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Perform a completion request using the chat completion endpoint.
+        
+        Args:
+            prompt (str): The input prompt for completion.
+            **kwargs: Additional arguments to pass to the API.
+
+        Returns:
+            Dict[str, Any]: The API response containing the completion.
+        """
         messages = [{"role": "user", "content": prompt}]
         return self.chat_completion(messages, **kwargs)
 
     @classmethod
     def available_models(cls) -> List[ModelType]:
+        """
+        Return a list of available model types for the GitHub model.
+
+        Returns:
+            List[ModelType]: A list of available ModelType enums.
+        """
         return [
             ModelType.AI21_JUMBO_INSTRUCT,
             ModelType.COHERE_COMMAND_R,

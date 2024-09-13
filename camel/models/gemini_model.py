@@ -12,6 +12,7 @@
 # limitations under the License.
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
 import os
+import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from camel.configs import Gemini_API_PARAMS
@@ -32,12 +33,16 @@ from camel.utils import (
 if TYPE_CHECKING:
     from google.generativeai.types import ContentsType, GenerateContentResponse
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+class GeminiModelError(Exception):
+    """Custom exception class for Gemini model errors."""
+    pass
 
 class GeminiModel(BaseModelBackend):
     r"""Gemini API in a unified BaseModelBackend interface."""
-
-    # NOTE: Currently "stream": True is not supported with Gemini due to the
-    # limitation of the current camel design.
 
     def __init__(
         self,
@@ -67,14 +72,19 @@ class GeminiModel(BaseModelBackend):
             model_type, model_config_dict, api_key, url, token_counter
         )
         
-        # Use Gemini_Studio_CHASE_API_KEY by default, fall back to LIQUIDMOVZ if not available
+        # Use provided API key, then check environment variables
         self._api_key = api_key or os.environ.get("Gemini_Studio_CHASE_API_KEY") or os.environ.get("Gemini_Studio_LIQUIDMOVZ_API_KEY")
         
         if not self._api_key:
-            raise ValueError("No Gemini API key found in environment variables.")
+            logger.error("No Gemini API key found in parameters or environment variables.")
+            raise GeminiModelError("No Gemini API key found in parameters or environment variables.")
         
-        genai.configure(api_key=self._api_key)
-        self._client = genai.GenerativeModel(self.model_type.value)
+        try:
+            genai.configure(api_key=self._api_key)
+            self._client = genai.GenerativeModel(self.model_type.value)
+        except Exception as e:
+            logger.error(f"Error initializing Gemini client: {str(e)}")
+            raise GeminiModelError(f"Error initializing Gemini client: {str(e)}") from e
 
         keys = list(self.model_config_dict.keys())
         generation_config_dict = {
@@ -86,6 +96,7 @@ class GeminiModel(BaseModelBackend):
             **generation_config_dict
         )
         self.model_config_dict["generation_config"] = generation_config
+        logger.info(f"GeminiModel initialized with model type: {self.model_type.value}")
 
     @property
     def token_counter(self) -> BaseTokenCounter:
@@ -114,12 +125,16 @@ class GeminiModel(BaseModelBackend):
         Returns:
             response: A ChatCompletion object formatted for the OpenAI API.
         """
-        response = self._client.generate_content(
-            contents=self.to_gemini_req(messages),
-            **self.model_config_dict,
-        )
-        response.resolve()
-        return self.to_openai_response(response)
+        try:
+            response = self._client.generate_content(
+                contents=self.to_gemini_req(messages),
+                **self.model_config_dict,
+            )
+            response.resolve()
+            return self.to_openai_response(response)
+        except Exception as e:
+            logger.error(f"Error during Gemini model inference: {str(e)}")
+            raise GeminiModelError(f"Error during Gemini model inference: {str(e)}") from e
 
     def check_model_config(self):
         r"""Check whether the model configuration contains any
@@ -132,6 +147,7 @@ class GeminiModel(BaseModelBackend):
         if self.model_config_dict is not None:
             for param in self.model_config_dict:
                 if param not in Gemini_API_PARAMS:
+                    logger.warning(f"Unexpected argument `{param}` in Gemini model backend.")
                     raise ValueError(
                         f"Unexpected argument `{param}` is "
                         "input into Gemini model backend."
@@ -162,10 +178,7 @@ class GeminiModel(BaseModelBackend):
         converted_messages = []
         for message in messages:
             role = message.get('role')
-            if role == 'assistant':
-                role_to_gemini = 'model'
-            else:
-                role_to_gemini = 'user'
+            role_to_gemini = 'model' if role == 'assistant' else 'user'
             converted_message = {
                 "role": role_to_gemini,
                 "parts": message.get("content"),
@@ -197,18 +210,19 @@ class GeminiModel(BaseModelBackend):
             model=self.model_type.value,
             choices=[],
         )
+        
+        finish_reason_mapping = {
+            "FinishReason.STOP": "stop",
+            "FinishReason.SAFETY": "content_filter",
+            "FinishReason.RECITATION": "content_filter",
+            "FinishReason.MAX_TOKENS": "length",
+        }
+        
         for i, candidate in enumerate(response.candidates):
             content = ""
             if candidate.content and len(candidate.content.parts) > 0:
                 content = candidate.content.parts[0].text
-            finish_reason = candidate.finish_reason
-            finish_reason_mapping = {
-                "FinishReason.STOP": "stop",
-                "FinishReason.SAFETY": "content_filter",
-                "FinishReason.RECITATION": "content_filter",
-                "FinishReason.MAX_TOKENS": "length",
-            }
-            finish_reason = finish_reason_mapping.get(finish_reason, "stop")
+            finish_reason = finish_reason_mapping.get(candidate.finish_reason, "stop")
             choice = Choice(
                 index=i,
                 message=ChatCompletionMessage(
@@ -216,5 +230,6 @@ class GeminiModel(BaseModelBackend):
                 ),
                 finish_reason=finish_reason,
             )
-        openai_response.choices.append(choice)
+            openai_response.choices.append(choice)
+        
         return openai_response
