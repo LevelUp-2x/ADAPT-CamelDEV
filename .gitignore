@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+camel_env/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Miscellaneous
+*.log
+.DS_Store
+
+# Environment variables
+.env
+
+# Specific to our project
+Resume/
+CAMEL_Model_Adaptation/
+ADAPT-CamelDEV-Project/
+git_status_output.txt
+Planning/Github_Models_with_Key.txt
+*_with_Key.txt
+
+# Ignore the entire Planning directory
+Planning/
+
+# New additions
+.gitignore_old
+ADAPT-CamelDEV-Clean/
+
+# LLMs folder
+LLMs/
+
+# BFG Repo-Cleaner
+bfg.jar
+
+# Temporary backup
+temp_backup/
+
+# Sensitive files list
+sensitive-files.txt
+
+# CamelSearchAgent (uncomment if you don't want to track this)
+# CamelSearchAgent/
+
+# Any other temporary or generated files
+*.tmp
+*.bak
+*.swp
+*~

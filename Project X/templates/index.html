@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAMEL Search Agent</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        #question {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        #submit, #clear-history {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        #clear-history {
+            background-color: #f44336;
+        }
+        #answer, #history {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+        .history-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #f1f1f1;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>CAMEL Search Agent</h1>
+    <input type="text" id="question" placeholder="Enter your question here">
+    <button id="submit">Search</button>
+    <div id="answer"></div>
+
+    <h2>Search History</h2>
+    <button id="clear-history">Clear History</button>
+    <div id="history">
+        {% for entry in search_history %}
+        <div class="history-item">
+            <strong>Question:</strong> {{ entry.question }}<br>
+            <strong>Answer:</strong> {{ entry.answer }}<br>
+            <strong>Time:</strong> {{ entry.timestamp }}
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            $('#submit').click(function() {
+                var question = $('#question').val();
+                $('#answer').text('Searching...');
+                $.ajax({
+                    url: '/search',
+                    method: 'POST',
+                    data: { question: question },
+                    success: function(response) {
+                        $('#answer').text(response.answer);
+                        location.reload(); // Reload the page to update the history
+                    },
+                    error: function() {
+                        $('#answer').text('An error occurred while processing your request.');
+                    }
+                });
+            });
+
+            $('#clear-history').click(function() {
+                $.ajax({
+                    url: '/clear_history',
+                    method: 'POST',
+                    success: function() {
+                        location.reload(); // Reload the page to clear the history
+                    },
+                    error: function() {
+                        alert('An error occurred while clearing the history.');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
