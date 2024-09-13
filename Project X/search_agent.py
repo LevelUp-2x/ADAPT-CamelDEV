@@ -12,6 +12,7 @@ from PIL import Image
 import io
 from stackapi import StackAPI
 from pyowm import OWM
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 print("Starting search_agent.py")
 
@@ -65,11 +66,13 @@ logger.info(f"GitHub Models Token: {GITHUB_MODELS_TOKEN[:10]}...")
 logger.info(f"GitHub Models Endpoint: {GITHUB_MODELS_ENDPOINT}")
 logger.info(f"GitHub Model: {GITHUB_MODEL}")
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_duckduckgo(query):
     with DDGS() as ddgs:
         results = [r for r in ddgs.text(query, max_results=5)]
     return results
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_wikipedia(query):
     try:
         return wikipedia.summary(query, sentences=3)
@@ -78,6 +81,7 @@ def search_wikipedia(query):
     except wikipedia.exceptions.PageError:
         return "No Wikipedia page found for the given query."
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_wolfram_alpha(query):
     res = wolfram_client.query(query)
     try:
@@ -85,28 +89,34 @@ def search_wolfram_alpha(query):
     except StopIteration:
         return "No results found on Wolfram Alpha."
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_news(query):
     news = news_api.get_top_headlines(q=query, language='en', page_size=5)
     return [{"title": article["title"], "description": article["description"]} for article in news["articles"]]
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_google(query):
     res = google_service.cse().list(q=query, cx=GOOGLE_CSE_ID, num=5).execute()
     return [{"title": item["title"], "snippet": item["snippet"]} for item in res.get("items", [])]
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def analyze_image(image_url):
     response = requests.get(image_url)
     img = Image.open(io.BytesIO(response.content))
     return f"Image size: {img.size}, Format: {img.format}, Mode: {img.mode}"
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_stack_overflow(query):
     questions = stack_api.fetch('search/advanced', sort='relevance', q=query, accepted=True, limit=5)
     return [{"title": q["title"], "link": q["link"]} for q in questions["items"]]
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def get_weather(location):
     observation = mgr.weather_at_place(location)
     w = observation.weather
     return f"Temperature: {w.temperature('celsius')['temp']}°C, Status: {w.detailed_status}"
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_serper(query):
     url = "https://google.serper.dev/search"
     payload = json.dumps({"q": query})
@@ -117,6 +127,7 @@ def search_serper(query):
     response = requests.request("POST", url, headers=headers, data=payload)
     return response.json()
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_tavily(query):
     url = "https://api.tavily.com/search"
     params = {
@@ -126,6 +137,7 @@ def search_tavily(query):
     response = requests.get(url, params=params)
     return response.json()
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def search_algolia(query):
     if algolia_client:
         index = algolia_client.init_index('your_index_name')  # Replace with your actual index name
@@ -134,6 +146,7 @@ def search_algolia(query):
     else:
         return "Algolia search is not available."
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def github_models_chat(prompt):
     headers = {
         "Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
@@ -144,14 +157,10 @@ def github_models_chat(prompt):
         "messages": [{"role": "user", "content": prompt}]
     }
     logger.info(f"Sending request to GitHub Models API: {GITHUB_MODELS_ENDPOINT}")
-    try:
-        response = requests.post(GITHUB_MODELS_ENDPOINT, headers=headers, json=data)
-        response.raise_for_status()
-        logger.info(f"Response status code: {response.status_code}")
-        return response.json()['choices'][0]['message']['content']
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error response from GitHub Models API: {str(e)}")
-        return f"An error occurred while processing your request: {str(e)}"
+    response = requests.post(GITHUB_MODELS_ENDPOINT, headers=headers, json=data)
+    response.raise_for_status()
+    logger.info(f"Response status code: {response.status_code}")
+    return response.json()['choices'][0]['message']['content']
 
 def search_agent(question):
     logger.info(f"Received question: {question}")
