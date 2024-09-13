@@ -1,0 +1,20 @@
+Remote repositories:
+origin	https://github.com/LevelUp-2x/ADAPT-CamelDEV.git (fetch)
+origin	https://github.com/LevelUp-2x/ADAPT-CamelDEV.git (push)
+
+Git status:
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	git_status_output.txt
+
+nothing added to commit but untracked files present (use "git add" to track)
+
+Recent commits:
+237e186 2023-06-14: Update ADAPT-CamelDEV.md with current status and next steps
+dafa145 Clean up: remove old Project Progress folder, add renamed Claude_CAMEL_Model_Adaptation.md
+c7ae773 Update project progress, add Git status check scripts, rename Project Progress folder
+b96415c Initial commit: Set up clean ADAPT-CamelDEV repository
+66c05a0 Initial commit
