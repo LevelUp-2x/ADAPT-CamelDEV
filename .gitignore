@@ -33,3 +33,6 @@ Planning/
 # New additions
 .gitignore_old
 ADAPT-CamelDEV-Clean/
+
+# LLMs folder
+LLMs/
