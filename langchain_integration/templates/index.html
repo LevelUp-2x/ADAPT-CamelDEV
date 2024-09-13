@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown.min.css">
+    <style>
+        .markdown-body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 45px;
+        }
+        @media (max-width: 767px) {
+            .markdown-body {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <div class="flex-grow p-4">
+        <div id="chat-history" class="bg-white p-4 rounded-lg shadow-md h-full overflow-y-auto mb-4">
+            <h2 class="font-bold mb-2">Chat History:</h2>
+        </div>
+    </div>
+    <div class="bg-white p-4 shadow-md">
+        <div class="mb-4">
+            <label for="model-family-select" class="block mb-2">Select Model Family:</label>
+            <select id="model-family-select" class="w-full p-2 border rounded">
+                <option value="">Select a model family</option>
+                <optgroup label="GitHub Models">
+                    {% for family in github_models %}
+                    <option value="github-{{ family }}">{{ family }}</option>
+                    {% endfor %}
+                </optgroup>
+                <optgroup label="Gemini Models">
+                    {% for family in gemini_models %}
+                    <option value="gemini-{{ family }}">{{ family }}</option>
+                    {% endfor %}
+                </optgroup>
+            </select>
+        </div>
+        <div class="mb-4">
+            <label for="model-select" class="block mb-2">Select Model:</label>
+            <select id="model-select" class="w-full p-2 border rounded" disabled>
+                <option value="">Select a model</option>
+            </select>
+        </div>
+        <div class="mb-4">
+            <textarea id="prompt-input" class="w-full p-2 border rounded" rows="3" placeholder="Enter your prompt..."></textarea>
+        </div>
+        <button id="submit-btn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Submit</button>
+    </div>
+
+    <script>
+        const promptInput = document.getElementById('prompt-input');
+        const submitBtn = document.getElementById('submit-btn');
+        const modelFamilySelect = document.getElementById('model-family-select');
+        const modelSelect = document.getElementById('model-select');
+        const chatHistory = document.getElementById('chat-history');
+
+        const githubModels = {{ github_models | tojson | safe }};
+        const geminiModels = {{ gemini_models | tojson | safe }};
+
+        modelFamilySelect.addEventListener('change', function() {
+            modelSelect.innerHTML = '<option value="">Select a model</option>';
+            modelSelect.disabled = false;
+
+            let models;
+            if (this.value.startsWith('github-')) {
+                const family = this.value.replace('github-', '');
+                models = githubModels[family];
+            } else if (this.value.startsWith('gemini-')) {
+                const family = this.value.replace('gemini-', '');
+                models = geminiModels[family];
+            } else {
+                modelSelect.disabled = true;
+                return;
+            }
+
+            for (let model in models) {
+                let option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            }
+        });
+
+        promptInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                submitBtn.click();
+            }
+        });
+
+        submitBtn.addEventListener('click', async () => {
+            const prompt = promptInput.value;
+            const modelFamilyFull = modelFamilySelect.value;
+            const model = modelSelect.value;
+
+            if (!prompt.trim() || !modelFamilyFull || !model) return;
+
+            const [provider, modelFamily] = modelFamilyFull.split('-');
+
+            addToChatHistory('User', prompt);
+            promptInput.value = '';
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt, model_family: modelFamily, model }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    addToChatHistory(`${provider} (${modelFamily} - ${model})`, data.response);
+                    addResponseTime(data.response_time);
+                } else {
+                    addToChatHistory('Error', data.error);
+                    addResponseTime(data.response_time);
+                }
+            } catch (error) {
+                addToChatHistory('Error', error.message);
+            }
+        });
+
+        function addToChatHistory(sender, message) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'mb-4 p-2 rounded';
+            messageElement.style.backgroundColor = sender === 'User' ? '#e6f3ff' : '#f0f0f0';
+            messageElement.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            chatHistory.appendChild(messageElement);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function addResponseTime(responseTime) {
+            const responseTimeElement = document.createElement('div');
+            responseTimeElement.className = 'text-sm text-gray-500 mt-1';
+            responseTimeElement.textContent = responseTime;
+            chatHistory.appendChild(responseTimeElement);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+    </script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
-# Licensed under the Apache License, Version 2.0 (the “License”);
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an “AS IS” BASIS,
+# distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
@@ -15,8 +15,9 @@ from typing import Any, Dict, Optional, Union
 
 from camel.models.anthropic_model import AnthropicModel
 from camel.models.azure_openai_model import AzureOpenAIModel
-from camel.models.base_model import BaseModelBackend
-from camel.models.gemini_model import GeminiModel
+from camel.models.adapt_model_backend import AdaptModelBackend
+from camel.models.github_model_backend import GitHubModelBackend
+from camel.models.gemini_model_backend import GeminiModelBackend
 from camel.models.groq_model import GroqModel
 from camel.models.litellm_model import LiteLLMModel
 from camel.models.mistral_model import MistralModel
@@ -33,13 +34,15 @@ from camel.models.zhipuai_model import ZhipuAIModel
 from camel.types import ModelPlatformType, ModelType
 from camel.utils import BaseTokenCounter
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+class ModelFactoryError(Exception):
+    """Base exception class for ModelFactory errors."""
 
 class ModelFactory:
-    r"""Factory of backend models.
-
-    Raises:
-        ValueError: in case the provided model type is unknown.
-    """
+    r"""Factory of backend models."""
 
     @staticmethod
     def create(
@@ -49,8 +52,8 @@ class ModelFactory:
         token_counter: Optional[BaseTokenCounter] = None,
         api_key: Optional[str] = None,
         url: Optional[str] = None,
-    ) -> BaseModelBackend:
-        r"""Creates an instance of `BaseModelBackend` of the specified type.
+    ) -> AdaptModelBackend:
+        r"""Creates an instance of `AdaptModelBackend` of the specified type.
 
         Args:
             model_platform (ModelPlatformType): Platform from which the model
@@ -68,67 +71,65 @@ class ModelFactory:
             url (Optional[str]): The url to the model service.
 
         Raises:
-            ValueError: If there is not backend for the model.
+            ModelFactoryError: If there is no backend for the model or if there's an error during creation.
 
         Returns:
-            BaseModelBackend: The initialized backend.
+            AdaptModelBackend: The initialized backend.
         """
-        model_class: Any
+        logger.info(f"Creating model backend for platform: {model_platform}, type: {model_type}")
+        
+        try:
+            model_class = ModelFactory._get_model_class(model_platform, model_type)
+            
+            if model_class in (OpenSourceModel, OllamaModel, TogetherAIModel):
+                return model_class(model_type, model_config_dict, url, token_counter)
+            elif model_class in (GeminiModelBackend, GitHubModelBackend):
+                return model_class(model_type=model_type, api_key=api_key, **model_config_dict)
+            else:
+                return model_class(model_type, model_config_dict, api_key, url, token_counter)
+        
+        except Exception as e:
+            logger.error(f"Error creating model backend: {str(e)}")
+            raise ModelFactoryError(f"Failed to create model backend: {str(e)}") from e
+
+    @staticmethod
+    def _get_model_class(model_platform: ModelPlatformType, model_type: Union[ModelType, str]) -> Any:
         if isinstance(model_type, ModelType):
             if model_platform.is_open_source and model_type.is_open_source:
-                model_class = OpenSourceModel
-                return model_class(
-                    model_type, model_config_dict, url, token_counter
-                )
-            if model_platform.is_openai and model_type.is_openai:
-                model_class = OpenAIModel
+                return OpenSourceModel
+            elif model_platform.is_openai and model_type.is_openai:
+                return OpenAIModel
             elif model_platform.is_azure and model_type.is_azure_openai:
-                model_class = AzureOpenAIModel
+                return AzureOpenAIModel
             elif model_platform.is_anthropic and model_type.is_anthropic:
-                model_class = AnthropicModel
+                return AnthropicModel
             elif model_type.is_groq:
-                model_class = GroqModel
+                return GroqModel
             elif model_platform.is_zhipuai and model_type.is_zhipuai:
-                model_class = ZhipuAIModel
+                return ZhipuAIModel
             elif model_platform.is_gemini and model_type.is_gemini:
-                model_class = GeminiModel
+                return GeminiModelBackend
+            elif model_platform.is_github and model_type.is_github:
+                return GitHubModelBackend
             elif model_platform.is_mistral and model_type.is_mistral:
-                model_class = MistralModel
+                return MistralModel
             elif model_platform.is_reka and model_type.is_reka:
-                model_class = RekaModel
+                return RekaModel
             elif model_type == ModelType.STUB:
-                model_class = StubModel
-            else:
-                raise ValueError(
-                    f"Unknown pair of model platform `{model_platform}` "
-                    f"and model type `{model_type}`."
-                )
+                return StubModel
         elif isinstance(model_type, str):
             if model_platform.is_ollama:
-                model_class = OllamaModel
-                return model_class(
-                    model_type, model_config_dict, url, token_counter
-                )
+                return OllamaModel
             elif model_platform.is_vllm:
-                model_class = VLLMModel
+                return VLLMModel
             elif model_platform.is_litellm:
-                model_class = LiteLLMModel
+                return LiteLLMModel
             elif model_platform.is_openai_compatibility_model:
-                model_class = OpenAICompatibilityModel
+                return OpenAICompatibilityModel
             elif model_platform.is_samba:
-                model_class = SambaModel
+                return SambaModel
             elif model_platform.is_together:
-                model_class = TogetherAIModel
-                return model_class(
-                    model_type, model_config_dict, api_key, token_counter
-                )
-            else:
-                raise ValueError(
-                    f"Unknown pair of model platform `{model_platform}` "
-                    f"and model type `{model_type}`."
-                )
-        else:
-            raise ValueError(f"Invalid model type `{model_type}` provided.")
-        return model_class(
-            model_type, model_config_dict, api_key, url, token_counter
-        )
+                return TogetherAIModel
+        
+        logger.error(f"Unknown pair of model platform `{model_platform}` and model type `{model_type}`.")
+        raise ModelFactoryError(f"Unknown pair of model platform `{model_platform}` and model type `{model_type}`.")
