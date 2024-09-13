@@ -12,12 +12,11 @@ from PIL import Image
 import io
 from stackapi import StackAPI
 from pyowm import OWM
-from algoliasearch.search_client import SearchClient as AlgoliaSearchClient
 
 print("Starting search_agent.py")
 
 # Load environment variables
-env_path = os.path.join(os.path.dirname(__file__), '..', 'ADAPT-CamelDEV-Project', '.env')
+env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
 load_dotenv(dotenv_path=env_path)
 print("Environment variables loaded")
 
@@ -31,11 +30,11 @@ WOLFRAM_ALPHA_APP_ID = os.getenv("WOLFRAM_ALPHA_APP_ID")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
-OWM_API_KEY = "55bd9fb2ee866196eb2f6fdc09437861"
-SERPER_API_KEY = "4c655ace03178858f5788fed18f925a77612936e"
-TAVILY_API_KEY = "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"
-ALGOLIA_APP_ID = "H23FYV09PA"
-ALGOLIA_API_KEY = "7d71ebe7bf1f76a6bb14aecfae798372"
+OWM_API_KEY = os.getenv("OWM_API_KEY")
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+ALGOLIA_APP_ID = os.getenv("Algolia_Application_ID")
+ALGOLIA_API_KEY = os.getenv("Algolia_Search_API_KEY")
 
 print("API keys loaded")
 
@@ -47,7 +46,16 @@ try:
     stack_api = StackAPI('stackoverflow')
     owm = OWM(OWM_API_KEY)
     mgr = owm.weather_manager()
-    algolia_client = AlgoliaSearchClient.create(ALGOLIA_APP_ID, ALGOLIA_API_KEY)
+    
+    # Try to import and initialize Algolia client
+    try:
+        from algoliasearch.search_client import SearchClient as AlgoliaSearchClient
+        algolia_client = AlgoliaSearchClient.create(ALGOLIA_APP_ID, ALGOLIA_API_KEY)
+        print("Algolia client initialized")
+    except ImportError:
+        print("Algolia client import failed. Algolia search will not be available.")
+        algolia_client = None
+    
     print("API clients initialized")
 except Exception as e:
     print(f"Error initializing API clients: {str(e)}")
@@ -119,9 +127,12 @@ def search_tavily(query):
     return response.json()
 
 def search_algolia(query):
-    index = algolia_client.init_index('your_index_name')  # Replace with your actual index name
-    results = index.search(query)
-    return results['hits']
+    if algolia_client:
+        index = algolia_client.init_index('your_index_name')  # Replace with your actual index name
+        results = index.search(query)
+        return results['hits']
+    else:
+        return "Algolia search is not available."
 
 def github_models_chat(prompt):
     headers = {
