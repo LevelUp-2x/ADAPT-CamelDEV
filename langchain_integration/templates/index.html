@@ -22,44 +22,36 @@
         
         <div class="grid grid-cols-3 gap-4 mb-4">
             <button onclick="submitChat()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Submit</button>
-            <button onclick="multiAgentChat()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Multi-Agent Chat</button>
-            <button onclick="testAllModels()" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">Test All Models</button>
+            <button id="multiAgentChatBtn" onclick="toggleMultiAgentChat()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Enable Multi-Agent Chat</button>
+            <button id="testAllModelsBtn" onclick="toggleTestAllModels()" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">Enable Test All Models</button>
             <button onclick="newChat()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">New Chat</button>
             <button onclick="toggleTheme()" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Toggle Theme</button>
             <button onclick="copyChatHistory()" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">Copy Chat History</button>
         </div>
 
-        <div class="grid grid-cols-3 gap-4 mb-4">
+        <div class="grid grid-cols-2 gap-4 mb-4">
             <div>
-                <label for="modelFamily" class="block mb-2">Select Model Family:</label>
-                <select id="modelFamily" class="w-full p-2 rounded bg-gray-700" onchange="updateModelOptions()">
-                    <option value="mistral">Mistral</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="huggingface">HuggingFace</option>
-                    <option value="gemini">Gemini</option>
-                    <option value="github">GitHub</option>
+                <label for="githubModels" class="block mb-2">GitHub Models:</label>
+                <select id="githubModels" class="w-full p-2 rounded bg-gray-700" multiple>
+                    <!-- GitHub models will be dynamically populated -->
                 </select>
             </div>
             <div>
-                <label for="model" class="block mb-2">Select Model:</label>
-                <select id="model" class="w-full p-2 rounded bg-gray-700">
-                    <!-- Options will be dynamically populated -->
-                </select>
-            </div>
-            <div>
-                <label for="tool" class="block mb-2">Select Tool:</label>
-                <select id="tool" class="w-full p-2 rounded bg-gray-700">
-                    <option value="no-tool">No tool</option>
-                    <!-- Add other tools as needed -->
+                <label for="geminiModels" class="block mb-2">Gemini Models:</label>
+                <select id="geminiModels" class="w-full p-2 rounded bg-gray-700" multiple>
+                    <!-- Gemini models will be dynamically populated -->
                 </select>
             </div>
         </div>
 
         <div class="mb-4">
-            <h2 class="text-xl font-semibold mb-2">Previous Chats:</h2>
-            <div id="previousChats" class="bg-gray-700 p-4 rounded">
-                <!-- Previous chats will be displayed here -->
-            </div>
+            <label for="numLoops" class="block mb-2">Number of Conversation Loops:</label>
+            <input type="number" id="numLoops" min="1" max="10" value="1" class="w-full p-2 border rounded bg-gray-700">
+        </div>
+
+        <div class="mb-4">
+            <h2 class="text-xl font-semibold mb-2">Response Times:</h2>
+            <canvas id="responseTimeChart"></canvas>
         </div>
 
         <div id="loadingIndicator" class="hidden">
@@ -71,6 +63,31 @@
 
     <script>
         let isDarkTheme = true;
+        let responseTimeChart;
+        let isMultiAgentChatEnabled = false;
+        let isTestAllModelsEnabled = false;
+
+        function populateModelSelects() {
+            const githubModels = {{ github_models|tojson }};
+            const geminiModels = {{ gemini_models|tojson }};
+
+            const githubSelect = document.getElementById('githubModels');
+            const geminiSelect = document.getElementById('geminiModels');
+
+            githubModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                githubSelect.appendChild(option);
+            });
+
+            geminiModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                geminiSelect.appendChild(option);
+            });
+        }
 
         function submitChat() {
             const userInput = document.getElementById('userInput').value;
@@ -80,11 +97,12 @@
             multiAgentChat(userInput);
         }
 
-        async function multiAgentChat(message) {
+        async function multiAgentChat(userInput) {
             showLoadingIndicator();
-            const modelFamily = document.getElementById('modelFamily').value;
-            const model = document.getElementById('model').value;
-            const tool = document.getElementById('tool').value;
+            const selectedGithubModels = Array.from(document.getElementById('githubModels').selectedOptions).map(option => option.value);
+            const selectedGeminiModels = Array.from(document.getElementById('geminiModels').selectedOptions).map(option => option.value);
+            const selectedModels = isTestAllModelsEnabled ? [...githubModels, ...geminiModels] : [...selectedGithubModels, ...selectedGeminiModels];
+            const numLoops = parseInt(document.getElementById('numLoops').value);
 
             try {
                 const response = await fetch('/multi_agent_chat', {
@@ -92,7 +110,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message, modelFamily, model, tool }),
+                    body: JSON.stringify({ message: userInput, models: selectedModels, num_loops: numLoops }),
                 });
 
                 if (!response.ok) {
@@ -101,6 +119,7 @@
 
                 const data = await response.json();
                 displayResponses(data.responses);
+                updateResponseTimeChart(data.responses);
             } catch (error) {
                 console.error('Error:', error);
                 displayError(error.message);
@@ -113,7 +132,8 @@
             const chatHistory = document.getElementById('chatHistory');
             responses.forEach(response => {
                 const responseTime = response.responseTime ? `(${response.responseTime.toFixed(2)}s)` : '';
-                chatHistory.innerHTML += `<p><strong>${response.agent} ${responseTime}:</strong> ${response.response}</p>`;
+                const loopInfo = `[Loop ${response.loop}]`;
+                chatHistory.innerHTML += `<p><strong>${response.agent} ${responseTime} ${loopInfo}:</strong> ${response.response}</p>`;
             });
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }
@@ -124,18 +144,50 @@
             chatHistory.scrollTop = chatHistory.scrollHeight;
         }
 
-        function testAllModels() {
-            const userInput = document.getElementById('userInput').value;
-            if (userInput.trim() === '') {
-                alert('Please enter a prompt to test all models.');
-                return;
+        function toggleMultiAgentChat() {
+            isMultiAgentChatEnabled = !isMultiAgentChatEnabled;
+            const btn = document.getElementById('multiAgentChatBtn');
+            btn.textContent = isMultiAgentChatEnabled ? 'Disable Multi-Agent Chat' : 'Enable Multi-Agent Chat';
+            btn.classList.toggle('bg-green-500');
+            btn.classList.toggle('bg-red-500');
+            updateChatMode();
+        }
+
+        function toggleTestAllModels() {
+            isTestAllModelsEnabled = !isTestAllModelsEnabled;
+            const btn = document.getElementById('testAllModelsBtn');
+            btn.textContent = isTestAllModelsEnabled ? 'Disable Test All Models' : 'Enable Test All Models';
+            btn.classList.toggle('bg-purple-500');
+            btn.classList.toggle('bg-red-500');
+            updateChatMode();
+        }
+
+        function updateChatMode() {
+            const chatHistory = document.getElementById('chatHistory');
+            if (isMultiAgentChatEnabled) {
+                chatHistory.innerHTML += '<p class="bg-green-500 text-white p-2 rounded">Multi-Agent Chat Mode Enabled</p>';
+            } else if (isTestAllModelsEnabled) {
+                chatHistory.innerHTML += '<p class="bg-purple-500 text-white p-2 rounded">Test All Models Mode Enabled</p>';
+            } else {
+                chatHistory.innerHTML += '<p class="bg-gray-500 text-white p-2 rounded">Standard Chat Mode</p>';
             }
-            multiAgentChat(userInput);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
         }
 
         function newChat() {
             document.getElementById('chatHistory').innerHTML = '';
             document.getElementById('userInput').value = '';
+            if (responseTimeChart) {
+                responseTimeChart.destroy();
+            }
+            isMultiAgentChatEnabled = false;
+            isTestAllModelsEnabled = false;
+            document.getElementById('multiAgentChatBtn').textContent = 'Enable Multi-Agent Chat';
+            document.getElementById('multiAgentChatBtn').classList.remove('bg-red-500');
+            document.getElementById('multiAgentChatBtn').classList.add('bg-green-500');
+            document.getElementById('testAllModelsBtn').textContent = 'Enable Test All Models';
+            document.getElementById('testAllModelsBtn').classList.remove('bg-red-500');
+            document.getElementById('testAllModelsBtn').classList.add('bg-purple-500');
         }
 
         function toggleTheme() {
@@ -145,41 +197,21 @@
             document.body.classList.toggle('text-white');
             document.body.classList.toggle('text-black');
             
-            // Toggle theme for other elements
-            const elements = document.querySelectorAll('.bg-gray-700, .text-white, select, textarea');
+            const elements = document.querySelectorAll('.bg-gray-700, .text-white, select, textarea, input[type="number"]');
             elements.forEach(el => {
                 el.classList.toggle('bg-gray-700');
                 el.classList.toggle('bg-white');
                 el.classList.toggle('text-white');
                 el.classList.toggle('text-black');
             });
+
+            updateChartTheme();
         }
 
         function copyChatHistory() {
             const chatHistory = document.getElementById('chatHistory').innerText;
             navigator.clipboard.writeText(chatHistory).then(() => {
                 alert('Chat history copied to clipboard!');
-            });
-        }
-
-        function updateModelOptions() {
-            const modelFamily = document.getElementById('modelFamily').value;
-            const modelSelect = document.getElementById('model');
-            modelSelect.innerHTML = '';
-
-            const modelOptions = {
-                mistral: ['mistral-nemo', 'mistral-light', 'mistral-medium', 'mistral-heavy'],
-                openai: ['gpt-3.5-turbo', 'gpt-4'],
-                huggingface: ['flan-t5-xxl', 'flan-t5-xl'],
-                gemini: ['gemini-pro'],
-                github: ['gpt-4', 'codex']
-            };
-
-            modelOptions[modelFamily].forEach(model => {
-                const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
-                modelSelect.appendChild(option);
             });
         }
 
@@ -191,6 +223,69 @@
             document.getElementById('loadingIndicator').classList.add('hidden');
         }
 
+        function updateResponseTimeChart(responses) {
+            const ctx = document.getElementById('responseTimeChart').getContext('2d');
+            const labels = responses.map(r => `${r.agent} (Loop ${r.loop})`);
+            const data = responses.map(r => r.responseTime);
+
+            if (responseTimeChart) {
+                responseTimeChart.destroy();
+            }
+
+            responseTimeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Response Time (s)',
+                        data: data,
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Response Time (seconds)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Models'
+                            },
+                            ticks: {
+                                maxRotation: 90,
+                                minRotation: 90
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            updateChartTheme();
+        }
+
+        function updateChartTheme() {
+            if (responseTimeChart) {
+                responseTimeChart.options.scales.x.ticks.color = isDarkTheme ? 'white' : 'black';
+                responseTimeChart.options.scales.y.ticks.color = isDarkTheme ? 'white' : 'black';
+                responseTimeChart.options.scales.x.title.color = isDarkTheme ? 'white' : 'black';
+                responseTimeChart.options.scales.y.title.color = isDarkTheme ? 'white' : 'black';
+                responseTimeChart.update();
+            }
+        }
+
         // Add event listener for Enter key
         document.getElementById('userInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -199,8 +294,8 @@
             }
         });
 
-        // Initialize model options
-        updateModelOptions();
+        // Initialize
+        populateModelSelects();
     </script>
 </body>
 </html>
