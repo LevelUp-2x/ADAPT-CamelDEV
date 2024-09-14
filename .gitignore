@@ -36,3 +36,9 @@ ADAPT-CamelDEV-Clean/
 
 # LLMs folder
 LLMs/
+
+# LangChain Docs
+LangChain_Docs/
+
+# Secrets folder
+Secrets/
