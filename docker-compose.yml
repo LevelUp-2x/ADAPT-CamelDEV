@@ -1,0 +1,87 @@
+version: '3'
+
+services:
+  main_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${MAIN_APP_PORT}:${MAIN_APP_PORT}"
+    env_file:
+      - .env
+    environment:
+      - ADAPT_ENV=${ADAPT_ENV}
+    depends_on:
+      - redis
+      - rag_service
+      - graph_rag_service
+      - agent_memory_service
+
+  rag_service:
+    build:
+      context: .
+      dockerfile: langchain_integration/rag_service.Dockerfile
+    ports:
+      - "${RAG_SERVICE_PORT}:${RAG_SERVICE_PORT}"
+    env_file:
+      - .env
+    environment:
+      - ADAPT_ENV=${ADAPT_ENV}
+    depends_on:
+      - redis
+
+  graph_rag_service:
+    build:
+      context: .
+      dockerfile: langchain_integration/graph_rag_service.Dockerfile
+    ports:
+      - "${GRAPH_RAG_SERVICE_PORT}:${GRAPH_RAG_SERVICE_PORT}"
+    env_file:
+      - .env
+    environment:
+      - ADAPT_ENV=${ADAPT_ENV}
+    depends_on:
+      - redis
+
+  agent_memory_service:
+    build:
+      context: .
+      dockerfile: langchain_integration/agent_memory_service.Dockerfile
+    ports:
+      - "${AGENT_MEMORY_SERVICE_PORT}:${AGENT_MEMORY_SERVICE_PORT}"
+    env_file:
+      - .env
+    environment:
+      - ADAPT_ENV=${ADAPT_ENV}
+    depends_on:
+      - redis
+
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "${REDIS_PORT}:${REDIS_PORT}"
+    environment:
+      - REDIS_USER_API_KEY=${REDIS_USER_API_KEY}
+      - REDIS_ACCOUNT_API_KEY=${REDIS_ACCOUNT_API_KEY}
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./tests:/app/tests
+    env_file:
+      - .env
+    environment:
+      - ADAPT_ENV=testing
+    depends_on:
+      - main_app
+      - rag_service
+      - graph_rag_service
+      - agent_memory_service
+      - redis
+    command: pytest /app/tests
+
+networks:
+  default:
+    driver: bridge

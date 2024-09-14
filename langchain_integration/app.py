@@ -1,135 +1,134 @@
-import os
-import time
-from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify
-import requests
+from flask import Flask, request, jsonify, render_template
+from langchain.chat_models import ChatOpenAI
+from langchain.llms import HuggingFaceHub
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema import HumanMessage, AIMessage
+from langchain.chains import LLMChain
+from langchain.memory import ConversationBufferMemory
 import google.generativeai as genai
-import markdown
-
-print("Starting application...")
+import os
+import requests
+import logging
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
-print("Loading environment variables...")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Load environment variables
 load_dotenv()
 
-print("Configuring API keys and endpoints...")
-# GitHub Models configuration
-GITHUB_MODELS_TOKEN = os.getenv("GitHub_ADAPT-Chase_MODELS_TOKEN")
+# Configure API keys
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GITHUB_MODELS_TOKEN = os.getenv("GITHUB_MODELS_TOKEN")
 GITHUB_MODELS_ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT")
-GITHUB_MODELS = {
-    "Meta": {
-        "Meta-Llama-3-70B-Instruct": "Meta-Llama-3-70B-Instruct",
-        "Meta-Llama-3-8B-Instruct": "Meta-Llama-3-8B-Instruct",
-        "Meta-Llama-3.1-405B-Instruct": "Meta-Llama-3.1-405B-Instruct",
-        "Meta-Llama-3.1-70B-Instruct": "Meta-Llama-3.1-70B-Instruct",
-        "Meta-Llama-3.1-8B-Instruct": "Meta-Llama-3.1-8B-Instruct"
-    },
-    "Mistral": {
-        "Mistral-large": "Mistral-large",
-        "Mistral-large-2407": "Mistral-large-2407",
-        "Mistral-Nemo": "Mistral-Nemo",
-        "Mistral-small": "Mistral-small"
-    },
-    "GPT": {
-        "gpt-4o": "gpt-4o",
-        "gpt-4o-mini": "gpt-4o-mini"
-    },
-    "Phi": {
-        "Phi-3-medium-128k-instruct": "Phi-3-medium-128k-instruct",
-        "Phi-3-medium-4k-instruct": "Phi-3-medium-4k-instruct",
-        "Phi-3-mini-128k-instruct": "Phi-3-mini-128k-instruct",
-        "Phi-3-mini-4k-instruct": "Phi-3-mini-4k-instruct",
-        "Phi-3-small-128k-instruct": "Phi-3-small-128k-instruct",
-        "Phi-3-small-8k-instruct": "Phi-3-small-8k-instruct",
-        "Phi-3.5-mini-instruct": "Phi-3.5-mini-instruct"
-    }
-}
 
-# Gemini configuration
-GEMINI_API_KEY = os.getenv("Gemini_Studio_CHASE_API_KEY")
-GEMINI_MODELS = {
-    "Pro": ["gemini-1.0-pro", "gemini-1.0-pro-001", "gemini-1.0-pro-latest"]
-}
+genai.configure(api_key=GEMINI_API_KEY)
 
-print(f"GitHub Models Token: {GITHUB_MODELS_TOKEN[:5] if GITHUB_MODELS_TOKEN else 'Not set'}...")
-print(f"GitHub Models Endpoint: {GITHUB_MODELS_ENDPOINT}")
-print(f"GitHub Model Families: {', '.join(GITHUB_MODELS.keys())}")
-print(f"Gemini API Key: {GEMINI_API_KEY[:5] if GEMINI_API_KEY else 'Not set'}...")
-print(f"Gemini Model Families: {', '.join(GEMINI_MODELS.keys())}")
+# Initialize models and chains
+try:
+    openai_model = ChatOpenAI(model_name="gpt-3.5-turbo")
+    openai_memory = ConversationBufferMemory(return_messages=True)
+    openai_prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful AI assistant."),
+        ("human", "{input}"),
+        ("ai", "{agent_scratchpad}")
+    ])
+    openai_chain = LLMChain(llm=openai_model, prompt=openai_prompt, memory=openai_memory)
+    logging.info("OpenAI model initialized successfully")
+except Exception as e:
+    logging.error(f"Error initializing OpenAI model: {str(e)}")
+    openai_chain = None
 
-def github_models_chat(prompt, model_family, model):
-    print(f"Sending request to GitHub Models ({model_family} - {model}): {prompt[:50]}...")
-    headers = {
-        "Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": GITHUB_MODELS[model_family][model],
-        "messages": [{"role": "user", "content": prompt}]
-    }
-    response = requests.post(GITHUB_MODELS_ENDPOINT, headers=headers, json=data)
-    if response.status_code == 200:
-        return response.json()['choices'][0]['message']['content']
-    else:
-        raise Exception(f"Error with GitHub Models API: {response.text}")
+try:
+    huggingface_model = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature": 0.5, "max_length": 512})
+    huggingface_memory = ConversationBufferMemory(return_messages=True)
+    huggingface_prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful AI assistant."),
+        ("human", "{input}"),
+        ("ai", "{agent_scratchpad}")
+    ])
+    huggingface_chain = LLMChain(llm=huggingface_model, prompt=huggingface_prompt, memory=huggingface_memory)
+    logging.info("HuggingFace model initialized successfully")
+except Exception as e:
+    logging.error(f"Error initializing HuggingFace model: {str(e)}")
+    huggingface_chain = None
 
-def gemini_chat(prompt, model_family, model):
-    print(f"Sending request to Gemini ({model_family} - {model}): {prompt[:50]}...")
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(model)
-    response = model.generate_content(prompt)
-    return response.text
-
-def format_response(response):
-    # Convert markdown to HTML
-    html = markdown.markdown(response)
-    # Wrap the HTML in a div for styling
-    return f'<div class="markdown-body">{html}</div>'
+try:
+    gemini_model = genai.GenerativeModel('gemini-pro')
+    logging.info("Gemini model initialized successfully")
+except Exception as e:
+    logging.error(f"Error initializing Gemini model: {str(e)}")
+    gemini_model = None
 
 @app.route('/')
 def index():
-    print("Rendering index page...")
-    return render_template('index.html', github_models=GITHUB_MODELS, gemini_models=GEMINI_MODELS)
+    return render_template('index.html')
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    print("Received chat request...")
+@app.route('/multi_agent_chat', methods=['POST'])
+def multi_agent_chat():
     data = request.json
-    prompt = data['prompt']
-    model_family = data['model_family']
-    model = data['model']
+    user_message = data.get('message', '')
+    logging.info(f"Received user message: {user_message}")
 
-    start_time = time.time()
+    responses = []
+
+    # OpenAI model
+    if openai_chain:
+        try:
+            openai_response = openai_chain.run(input=user_message)
+            responses.append({"agent": "OpenAI", "response": openai_response})
+            logging.info("OpenAI model responded successfully")
+        except Exception as e:
+            logging.error(f"Error with OpenAI model: {str(e)}")
+            responses.append({"agent": "OpenAI", "response": "Error occurred"})
+
+    # HuggingFace model
+    if huggingface_chain:
+        try:
+            huggingface_response = huggingface_chain.run(input=user_message)
+            responses.append({"agent": "HuggingFace", "response": huggingface_response})
+            logging.info("HuggingFace model responded successfully")
+        except Exception as e:
+            logging.error(f"Error with HuggingFace model: {str(e)}")
+            responses.append({"agent": "HuggingFace", "response": "Error occurred"})
+
+    # Gemini model
+    if gemini_model:
+        try:
+            gemini_response = gemini_model.generate_content(user_message)
+            responses.append({"agent": "Gemini", "response": gemini_response.text})
+            logging.info("Gemini model responded successfully")
+        except Exception as e:
+            logging.error(f"Error with Gemini model: {str(e)}")
+            responses.append({"agent": "Gemini", "response": "Error occurred"})
+
+    # GitHub model (example with GPT-4)
     try:
-        if model_family in GITHUB_MODELS:
-            response = github_models_chat(prompt, model_family, model)
-            model_name = f"GitHub Models ({model_family} - {model})"
-        elif model_family in GEMINI_MODELS:
-            response = gemini_chat(prompt, model_family, model)
-            model_name = f"Gemini ({model_family} - {model})"
+        github_response = requests.post(
+            f"{GITHUB_MODELS_ENDPOINT}/completions",
+            headers={"Authorization": f"Bearer {GITHUB_MODELS_TOKEN}"},
+            json={"model": "gpt-4", "prompt": user_message, "max_tokens": 150}
+        )
+        if github_response.status_code == 200:
+            github_text = github_response.json()['choices'][0]['text']
+            responses.append({"agent": "GitHub GPT-4", "response": github_text})
+            logging.info("GitHub model responded successfully")
         else:
-            return jsonify({"error": "Invalid model selection"}), 400
-
-        end_time = time.time()
-        response_time = round(end_time - start_time, 2)
-        formatted_response = format_response(response)
-        print(f"Sending response: {response[:50]}...")
-        return jsonify({
-            "response": f"[{model_name}] {formatted_response}",
-            "response_time": f"Response time: {response_time} seconds"
-        })
+            logging.error(f"Error with GitHub model API call: {github_response.status_code}")
+            responses.append({"agent": "GitHub GPT-4", "response": "Error in API call"})
     except Exception as e:
-        end_time = time.time()
-        response_time = round(end_time - start_time, 2)
-        print(f"Error occurred: {str(e)}")
-        return jsonify({
-            "error": str(e),
-            "response_time": f"Response time: {response_time} seconds"
-        }), 500
+        logging.error(f"Error with GitHub model: {str(e)}")
+        responses.append({"agent": "GitHub GPT-4", "response": "Error occurred"})
+
+    return jsonify({"responses": responses})
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
 
 if __name__ == '__main__':
-    print("Starting Flask application...")
-    app.run(debug=True)
-
-print("Application setup complete.")
+    app.run(debug=True, host='0.0.0.0', port=5000)
