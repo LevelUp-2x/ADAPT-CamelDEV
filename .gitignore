@@ -54,3 +54,6 @@ sensitive-files.txt
 *.bak
 *.swp
 *~
+
+# LangChain Docs
+LangChain_Docs/
