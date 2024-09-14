@@ -54,3 +54,9 @@ sensitive-files.txt
 *.bak
 *.swp
 *~
+
+# LangChain_Docs folder
+LangChain_Docs/
+
+# Secrets folder
+Secrets/
