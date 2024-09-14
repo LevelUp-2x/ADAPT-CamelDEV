@@ -32,16 +32,18 @@
         <div class="grid grid-cols-3 gap-4 mb-4">
             <div>
                 <label for="modelFamily" class="block mb-2">Select Model Family:</label>
-                <select id="modelFamily" class="w-full p-2 rounded bg-gray-700">
+                <select id="modelFamily" class="w-full p-2 rounded bg-gray-700" onchange="updateModelOptions()">
                     <option value="mistral">Mistral</option>
-                    <!-- Add other model families as needed -->
+                    <option value="openai">OpenAI</option>
+                    <option value="huggingface">HuggingFace</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="github">GitHub</option>
                 </select>
             </div>
             <div>
                 <label for="model" class="block mb-2">Select Model:</label>
                 <select id="model" class="w-full p-2 rounded bg-gray-700">
-                    <option value="mistral-nemo">Mistral-Nemo</option>
-                    <!-- Add other models as needed -->
+                    <!-- Options will be dynamically populated -->
                 </select>
             </div>
             <div>
@@ -59,22 +61,76 @@
                 <!-- Previous chats will be displayed here -->
             </div>
         </div>
+
+        <div id="loadingIndicator" class="hidden">
+            <div class="flex justify-center items-center">
+                <div class="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+            </div>
+        </div>
     </div>
 
     <script>
+        let isDarkTheme = true;
+
         function submitChat() {
             const userInput = document.getElementById('userInput').value;
             const chatHistory = document.getElementById('chatHistory');
             chatHistory.innerHTML += `<p><strong>You:</strong> ${userInput}</p>`;
-            // Add logic to send the message to the server and display the response
+            document.getElementById('userInput').value = '';
+            multiAgentChat(userInput);
         }
 
-        function multiAgentChat() {
-            // Add logic for multi-agent chat
+        async function multiAgentChat(message) {
+            showLoadingIndicator();
+            const modelFamily = document.getElementById('modelFamily').value;
+            const model = document.getElementById('model').value;
+            const tool = document.getElementById('tool').value;
+
+            try {
+                const response = await fetch('/multi_agent_chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message, modelFamily, model, tool }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayResponses(data.responses);
+            } catch (error) {
+                console.error('Error:', error);
+                displayError(error.message);
+            } finally {
+                hideLoadingIndicator();
+            }
+        }
+
+        function displayResponses(responses) {
+            const chatHistory = document.getElementById('chatHistory');
+            responses.forEach(response => {
+                const responseTime = response.responseTime ? `(${response.responseTime.toFixed(2)}s)` : '';
+                chatHistory.innerHTML += `<p><strong>${response.agent} ${responseTime}:</strong> ${response.response}</p>`;
+            });
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function displayError(message) {
+            const chatHistory = document.getElementById('chatHistory');
+            chatHistory.innerHTML += `<p class="text-red-500"><strong>Error:</strong> ${message}</p>`;
+            chatHistory.scrollTop = chatHistory.scrollHeight;
         }
 
         function testAllModels() {
-            // Add logic to test all models
+            const userInput = document.getElementById('userInput').value;
+            if (userInput.trim() === '') {
+                alert('Please enter a prompt to test all models.');
+                return;
+            }
+            multiAgentChat(userInput);
         }
 
         function newChat() {
@@ -83,11 +139,20 @@
         }
 
         function toggleTheme() {
+            isDarkTheme = !isDarkTheme;
             document.body.classList.toggle('bg-gray-800');
             document.body.classList.toggle('bg-white');
             document.body.classList.toggle('text-white');
             document.body.classList.toggle('text-black');
-            // Add logic to toggle other elements' themes
+            
+            // Toggle theme for other elements
+            const elements = document.querySelectorAll('.bg-gray-700, .text-white, select, textarea');
+            elements.forEach(el => {
+                el.classList.toggle('bg-gray-700');
+                el.classList.toggle('bg-white');
+                el.classList.toggle('text-white');
+                el.classList.toggle('text-black');
+            });
         }
 
         function copyChatHistory() {
@@ -97,6 +162,35 @@
             });
         }
 
+        function updateModelOptions() {
+            const modelFamily = document.getElementById('modelFamily').value;
+            const modelSelect = document.getElementById('model');
+            modelSelect.innerHTML = '';
+
+            const modelOptions = {
+                mistral: ['mistral-nemo', 'mistral-light', 'mistral-medium', 'mistral-heavy'],
+                openai: ['gpt-3.5-turbo', 'gpt-4'],
+                huggingface: ['flan-t5-xxl', 'flan-t5-xl'],
+                gemini: ['gemini-pro'],
+                github: ['gpt-4', 'codex']
+            };
+
+            modelOptions[modelFamily].forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            });
+        }
+
+        function showLoadingIndicator() {
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+        }
+
+        function hideLoadingIndicator() {
+            document.getElementById('loadingIndicator').classList.add('hidden');
+        }
+
         // Add event listener for Enter key
         document.getElementById('userInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -104,6 +198,9 @@
                 submitChat();
             }
         });
+
+        // Initialize model options
+        updateModelOptions();
     </script>
 </body>
 </html>
